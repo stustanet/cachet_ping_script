@@ -1,0 +1,19 @@
+[Unit]
+Description=Cachet Ping Script that checks if it can reach or is reached by certain services. Opens ports 7331-7332
+After=network-online.target nginx.service
+Wants=network-online.target systemd-networkd-wait-online.service
+
+StartLimitIntervalSec=500
+StartLimitBurst=5
+
+[Service]
+Restart=on-failure
+RestartSec=5s
+
+Environment="AUTH_TOKEN=<changemeeeeeeeeeeeeeeee>"
+Environment="DEBUG_OUTPUT=False"
+
+ExecStart=/usr/local/bin/cachet_ping_script.py
+
+[Install]
+WantedBy=multi-user.target

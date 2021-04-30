@@ -1,0 +1,18 @@
+[Unit]
+Description=Script that regularly connects to a Webserver on the Aussenstelle for Cachet to check if the Proxy is working
+After=network-online.target
+Wants=network-online.target systemd-networkd-wait-online.service
+
+StartLimitIntervalSec=500
+StartLimitBurst=5
+
+[Service]
+Restart=on-failure
+RestartSec=5s
+
+#Environment="CACHET_PING_LINK=cachet.stusta.de"
+
+ExecStart=/usr/local/bin/http_pinger.py
+
+[Install]
+WantedBy=multi-user.target

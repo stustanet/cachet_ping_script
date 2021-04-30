@@ -1,0 +1,18 @@
+[Unit]
+Description=Script that regularly connects to a TCP port on the Aussenstelle for Cachet to check if the NAT is working
+After=network-online.target
+Wants=network-online.target systemd-networkd-wait-online.service
+
+StartLimitIntervalSec=500
+StartLimitBurst=5
+
+[Service]
+Restart=on-failure
+RestartSec=5s
+
+Environment="CACHET_PING_LINK=cachet.stusta.de"
+
+ExecStart=/usr/local/bin/tcp_pinger.py
+
+[Install]
+WantedBy=multi-user.target
