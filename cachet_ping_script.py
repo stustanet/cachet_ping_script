@@ -10,7 +10,7 @@ import os
 
 from pprint import pprint
 
-IR_IP_ADDR = "2001:4ca0:200:1::1"
+IR_IP_ADDR = os.environ.get("IR_IP_ADDR", default="2001:4ca0:200:1::1")
 AUTH_TOKEN = os.environ.get("AUTH_TOKEN", default="bogus_auth_token")
 
 
@@ -90,7 +90,6 @@ class Component:
 
 
         url = f"https://status.stusta.de/api/v1/incidents/{id}"
-        print(url)
         headers = {
             "Content-Type": "application/json",
             "X-Cachet-Token": AUTH_TOKEN
@@ -108,6 +107,30 @@ class Component:
             pprint(incident_update)
 
         self.component_status = component_status
+
+
+
+    def delete_active_incident(self):
+        if self.incident_number is None:
+            return
+        self.update_incident(component_status=1)
+        
+        url = f"https://status.stusta.de/api/v1/incidents/{self.incident_number}"
+        headers = {
+            "Content-Type": "application/json",
+            "X-Cachet-Token": AUTH_TOKEN
+        }
+
+        response = requests.request("DELETE", url, headers=headers)
+
+        if(DEBUG_OUTPUT):
+            print("Incident deleted in component", self.component_name, "with status:", response.status_code,  "with return:")
+            pprint(response.text)
+
+        self.incident_number = None
+        self.incident_elevated = False
+
+
         
     def elevate_incident(self, should_notify:bool=False):
         self.update_incident(component_status=4, should_notify=should_notify)
@@ -131,7 +154,8 @@ class Component:
         if self.last_success is None:
             return True
         tdelta = (curtime - self.last_success).total_seconds()
-        print("---> checkpoint 1", tdelta, "first_incident_seconds", first_incident_seconds)
+        if(DEBUG_OUTPUT):
+            print("   Checking current status of", self.component_name, "; Secs since last confirm:", str(tdelta) + "; Secs till first notify:", first_incident_seconds) 
 
         # if we have a lasting problem
         if (self.incident_number is not None) and not self.incident_elevated and (tdelta > elevate_incident_seconds):
@@ -172,9 +196,11 @@ class IR(Component):
     async def ping_loop(self):
         while True:
             process = subprocess.run(["ping", "-6", "-c", "1", IR_IP_ADDR], capture_output=True)
-            print("Ping")
+            if(DEBUG_OUTPUT):
+                print("Ping")
             if process.returncode == 0:
                 self.last_success = datetime.datetime.now()
+
             await asyncio.sleep(25)
 
     def check_and_update_status(self):
@@ -243,7 +269,7 @@ class Proxy(Component):
 
     async def http_callback(self, request: web.Request):
         if(DEBUG_OUTPUT):
-            print("got a http request...")
+            print("got an http request...")
         
         headers = request.headers
         timestamp_str = headers.get("Timestamp")
@@ -295,6 +321,7 @@ async def test_loop(blocking_service:Component, nonblocking_services:List[Compon
 
         else:
             for service in nonblocking_services:
+                service.delete_active_incident()   # we can safely assume that the incident was caused by the blocking_service failing
                 service.reset_last_success()
         
 

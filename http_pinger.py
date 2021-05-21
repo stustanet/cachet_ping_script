@@ -9,7 +9,7 @@ def request_loop():
         time_str = str(int(datetime.datetime.now().timestamp()))
         header = {"Timestamp": time_str}
         try:
-            req = requests.request("GET", os.environ.get("CACHET_PING_LINK", default="http://cachet.stusta.de:7332/http-ping"), headers=header)
+            req = requests.request("GET", os.environ.get("CACHET_PING_LINK", default="http://status.stusta.de:7332/http-ping"), headers=header)
             if req.status_code != 200 or req.text.find("OK") == -1:
                 print(time_str+":", "got invalid response: Code", req.status_code, "Text:", req.text)
         except:
