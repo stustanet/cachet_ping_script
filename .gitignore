@@ -180,5 +180,8 @@ tags
 !.vscode/extensions.json
 *.code-workspace
 
+### Pycharm ###
+.idea
+
 # End of https://www.toptal.com/developers/gitignore/api/python,vscode,vim
 

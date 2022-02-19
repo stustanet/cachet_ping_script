@@ -1,14 +1,17 @@
 import requests
 import datetime
 import asyncio
+import datetime
+
+import requests
 
 
 async def loop_function():
-    while(True):
+    while (True):
         timestamp = str(int(datetime.datetime.now().timestamp())) + "\n"
         print(timestamp)
         header = {"Timestamp": timestamp.strip()}
-        
+
         req = requests.request("GET", "http://127.0.0.1:7332/http-ping", headers=header)
         print("Answer from http endpoint", req.text)
 
