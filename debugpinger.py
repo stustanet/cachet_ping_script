@@ -1,5 +1,4 @@
-import requests
-import datetime
+#!/usr/bin/env python3
 import asyncio
 import datetime
 
@@ -23,4 +22,5 @@ async def loop_function():
         await asyncio.sleep(5)
 
 
-asyncio.run(loop_function())
+if __name__ == "__main__":
+    asyncio.run(loop_function())

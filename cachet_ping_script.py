@@ -1,5 +1,4 @@
-#!/usr/bin/python3
-import subprocess
+#!/usr/bin/env python3
 import asyncio
 import datetime
 import json
@@ -18,6 +17,7 @@ FIRST_INCIDENT_AFTER_SECONDS = 60
 ELEVATE_INCIDENT_AFTER_SECONDS = 5 * 60
 
 DEBUG_OUTPUT = bool(os.environ.get("DEBUG_OUTPUT", default=True))
+
 
 class Component:
 
@@ -348,10 +348,8 @@ def main():
     ir = IR()
     nat = NAT()
     proxy = Proxy()
-
     asyncio.run(test_loop(ir, [nat, proxy]))
 
 
-
-main()
-
+if __name__ == "__main__":
+    main()

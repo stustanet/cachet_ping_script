@@ -1,5 +1,4 @@
-#!/usr/bin/python3
-import requests
+#!/usr/bin/env python3
 import datetime
 import os
 import time
@@ -21,4 +20,6 @@ def request_loop():
             print("Error during http ping execution")
         time.sleep(25)
 
-request_loop()
+
+if __name__ == "__main__":
+    request_loop()

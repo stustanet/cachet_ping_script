@@ -1,4 +1,4 @@
-#!/usr/bin/python3
+#!/usr/bin/env python3
 
 import datetime
 import os
@@ -25,4 +25,5 @@ def request_loop():
         time.sleep(25)
 
 
-request_loop()
+if __name__ == "__main__":
+    request_loop()
