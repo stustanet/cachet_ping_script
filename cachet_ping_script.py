@@ -2,9 +2,10 @@
 import asyncio
 import datetime
 import json
+import logging
 import os
 import subprocess
-from pprint import pprint
+from pprint import pformat
 from typing import List, Union
 
 import requests
@@ -16,7 +17,11 @@ AUTH_TOKEN = os.environ.get("AUTH_TOKEN", default="bogus_auth_token")
 FIRST_INCIDENT_AFTER_SECONDS = 60
 ELEVATE_INCIDENT_AFTER_SECONDS = 5 * 60
 
-DEBUG_OUTPUT = bool(os.environ.get("DEBUG_OUTPUT", default=True))
+# Logger Setup
+logger = logging.getLogger()
+if bool(os.environ.get("DEBUG_OUTPUT", default=True)):
+    logger.setLevel(logging.DEBUG)
+    logger.addHandler(logging.StreamHandler())
 
 
 class Component:
@@ -40,10 +45,9 @@ class Component:
         try:
             component_desc = next(filter(lambda x: x["name"] == component_name, component_list))
         except StopIteration as e:
-            print("I didn't find the component", component_name)
-            import pprint
-            pprint.pprint(component_list)
-            raise e
+            logger.error("I didn't find the component", component_name)
+            logger.error(pformat(component_list))
+            return
 
         self.component_number = component_desc["id"]
         self.component_name = component_desc["name"]
@@ -75,9 +79,7 @@ class Component:
 
         response = requests.request("POST", url, headers=headers, json=payload)
         incident = json.loads(response.text)["data"]
-
-        if (DEBUG_OUTPUT):
-            pprint(incident)
+        logger.debug(pformat(incident))
 
         self.incident_number = incident["id"]
         print(self.incident_number, "type:", type(self.incident_number))
@@ -108,9 +110,7 @@ class Component:
         }
         response = requests.request("PUT", url, headers=headers, json=payload)
         incident_update = json.loads(response.text)
-
-        if (DEBUG_OUTPUT):
-            pprint(incident_update)
+        logger.debug(pformat(incident_update))
 
         self.component_status = component_status
 
@@ -127,10 +127,9 @@ class Component:
 
         response = requests.request("DELETE", url, headers=headers)
 
-        if (DEBUG_OUTPUT):
-            print("Incident deleted in component", self.component_name, "with status:", response.status_code,
-                  "with return:")
-            pprint(response.text)
+        logger.debug("Incident deleted in component", self.component_name, "with status:", response.status_code,
+                     "with return:")
+        logger.debug(pformat(response.text))
 
         self.incident_number = None
         self.incident_elevated = False
@@ -164,32 +163,25 @@ class Component:
         if self.last_success is None:
             return True
         tdelta = (curtime - self.last_success).total_seconds()
-        if (DEBUG_OUTPUT):
-            print("   Checking current status of", self.component_name, "; Secs since last confirm:",
-                  str(tdelta) + "; Secs till first notify:", first_incident_seconds)
+        logger.debug(f"Checking current status of {self.component_name}; Secs since last confirm: {tdelta}; "
+                     f"Secs till first notify: {first_incident_seconds}")
 
-            # if we have a lasting problem
+        # we have a lasting problem
         if (self.incident_number is not None) and not self.incident_elevated and (tdelta > elevate_incident_seconds):
-            if (DEBUG_OUTPUT):
-                print(self.component_name + ":", "Incident elevated")
-
+            logger.info(f"{self.component_name}: Incident elevated")
             self.elevate_incident(should_notify=should_notify)
             return False
 
-        # if we experience the first problem
+        # we experience the first problem
         if (self.incident_number is None) and (tdelta > first_incident_seconds):
-            if (DEBUG_OUTPUT):
-                print(self.component_name + ":", "Incident raised")
-
+            logger.info(f"{self.component_name}: Incident raised")
             self.create_incident(name=name, message=msg)
             self.incident_elevated = False
             return False
 
-        # if we are okay again
+        # we are okay again
         if (self.incident_number is not None) and tdelta < first_incident_seconds:
-            if (DEBUG_OUTPUT):
-                print(self.component_name + ":", "Incident resolved")
-
+            logger.info(f"{self.component_name}: Incident resolved")
             self.resolve_incident()
             return True
 
@@ -207,16 +199,14 @@ class IR(Component):
     async def ping_loop(self):
         while True:
             process = subprocess.run(["ping", "-6", "-c", "1", IR_IP_ADDR], capture_output=True)
-            if (DEBUG_OUTPUT):
-                print("Ping")
+            logger.debug("Ping")
             if process.returncode == 0:
                 self.last_success = datetime.datetime.now()
 
             await asyncio.sleep(25)
 
     def check_and_update_status(self):
-        if (DEBUG_OUTPUT):
-            print("in IR check function")
+        logger.debug("in IR check function")
 
         return super().check_and_update_status(
             "IR downtime detected",
@@ -235,19 +225,15 @@ class NAT(Component):
         await asyncio.start_server(self.tcp_callback, "0.0.0.0", 7331)
 
     async def tcp_callback(self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter):
-        if (DEBUG_OUTPUT):
-            print("got TCP request...")
+        logger.debug("got TCP request...")
 
         timestamp_str = (await reader.readline())
 
         try:
-
             timestamp_sent = datetime.datetime.fromtimestamp(int(timestamp_str.decode("utf8")))
             tdelta = datetime.datetime.now() - timestamp_sent
             if abs(tdelta.total_seconds()) < 30:
-                if (DEBUG_OUTPUT):
-                    print("TCP request is from NAT")
-
+                logger.debug("TCP request is from NAT")
                 self.last_success = datetime.datetime.now()
                 writer.write(b"OK")
             else:
@@ -260,8 +246,7 @@ class NAT(Component):
             await writer.wait_closed()
 
     def check_and_update_status(self):
-        if (DEBUG_OUTPUT):
-            print("in NAT check function")
+        logger.debug("in NAT check function")
 
         return super().check_and_update_status(
             "NAT downtime detected",
@@ -283,8 +268,7 @@ class Proxy(Component):
         asyncio.gather(web._run_app(http_server, port=7332))
 
     async def http_callback(self, request: web.Request):
-        if (DEBUG_OUTPUT):
-            print("got an http request...")
+        logger.debug("got an http request...")
 
         headers = request.headers
         timestamp_str = headers.get("Timestamp")
@@ -299,8 +283,7 @@ class Proxy(Component):
 
         tdelta = datetime.datetime.now() - timestamp_sent
         if abs(tdelta.total_seconds()) < 30:
-            if (DEBUG_OUTPUT):
-                print("http request is from Proxy!")
+            logger.debug("http request is from Proxy!")
 
             self.last_success = datetime.datetime.now()
             return web.Response(text="OK")
@@ -308,9 +291,7 @@ class Proxy(Component):
             return web.Response(text="FAIL")
 
     def check_and_update_status(self):
-        if (DEBUG_OUTPUT):
-            print("in Proxy check funtion")
-
+        logger.debug("in Proxy check funtion")
         return super().check_and_update_status(
             "Proxy downtime detected",
             "Our automatic failure detection has found that the Proxy is experiencing issues. "
@@ -325,8 +306,7 @@ async def test_loop(blocking_service: Component, nonblocking_services: List[Comp
     for service in nonblocking_services:
         await service.init()
 
-    if (DEBUG_OUTPUT):
-        print("Finished setting up the objects")
+    logger.debug("Finished setting up the objects")
 
     while True:
         if blocking_service.check_and_update_status():
@@ -338,8 +318,7 @@ async def test_loop(blocking_service: Component, nonblocking_services: List[Comp
                 service.delete_active_incident()  # we can safely assume that the incident was caused by the blocking_service failing
                 service.reset_last_success()
 
-        if (DEBUG_OUTPUT):
-            print("Testloop executed")
+        logger.debug("Testloop executed")
 
         await asyncio.sleep(5)
 
@@ -352,4 +331,8 @@ def main():
 
 
 if __name__ == "__main__":
+    logging.debug("debug1")
+    # logging.error("error2")
+    logger.debug("Debug")
+    logger.warning("warning")
     main()
