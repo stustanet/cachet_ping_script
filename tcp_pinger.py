@@ -11,7 +11,7 @@ def request_loop():
         time_str = str(int(datetime.datetime.now().timestamp())) + "\n"
         try:
             with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
-                sock.connect((os.environ.get("CACHET_PING_LINK", "cachet.stusta.de"), 7331))
+                sock.connect((os.environ.get("CACHET_PING_LINK", "status.stusta.de"), 7331))
                 sock.send(time_str.encode("utf8"))
                 print("done")
                 receive_str = sock.recv(4)

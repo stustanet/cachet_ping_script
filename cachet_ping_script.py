@@ -5,11 +5,14 @@ import json
 import logging
 import os
 import subprocess
+from json import JSONDecodeError
 from pprint import pformat
 from typing import List, Union
 
 import requests
 from aiohttp import web
+
+BASE_URL = "https://status.stusta.de"
 
 IR_IP_ADDR = os.environ.get("IR_IP_ADDR", default="2001:4ca0:200:1::1")
 AUTH_TOKEN = os.environ.get("AUTH_TOKEN", default="bogus_auth_token")
@@ -19,7 +22,7 @@ ELEVATE_INCIDENT_AFTER_SECONDS = 5 * 60
 
 # Logger Setup
 logger = logging.getLogger()
-if bool(os.environ.get("DEBUG_OUTPUT", default=True)):
+if bool(os.environ.get("DEBUG_OUTPUT", default=False)):
     logger.setLevel(logging.DEBUG)
     logger.addHandler(logging.StreamHandler())
 
@@ -34,7 +37,7 @@ class Component:
         self.incident_elevated = False
         self.component_status = None
 
-        url = "https://status.stusta.de/api/v1/components"
+        url = f"{BASE_URL}/api/v1/components"
         headers = {
             "X-Cachet-Token": AUTH_TOKEN
         }
@@ -53,7 +56,7 @@ class Component:
         self.component_name = component_desc["name"]
         self.component_status = component_desc["status"]
 
-    async def init(self):
+    async def start(self):
         pass
 
     def create_incident(
@@ -63,7 +66,7 @@ class Component:
             component_status: int = 2,
             incident_status: int = 1):
 
-        url = "https://status.stusta.de/api/v1/incidents"
+        url = f"{BASE_URL}/api/v1/incidents"
         payload = {
             "notify": False,
             "name": name,
@@ -78,11 +81,20 @@ class Component:
         }
 
         response = requests.request("POST", url, headers=headers, json=payload)
-        incident = json.loads(response.text)["data"]
-        logger.debug(pformat(incident))
+        try:
+            incident = json.loads(response.text)
+        except JSONDecodeError:
+            logger.warning("Cachet server did not answer with json:", response.text)
+            return
 
-        self.incident_number = incident["id"]
-        print(self.incident_number, "type:", type(self.incident_number))
+        logger.info("Created Incident")
+        logger.info(pformat(incident))
+        try:
+            self.incident_number = incident["data"]["id"]
+        except KeyError:
+            logger.warning("Incident is not formatted correctly. Missing [data][id]")
+            return
+
         self.component_status = component_status
 
     def update_incident(
@@ -97,7 +109,7 @@ class Component:
         if component_status is None:
             component_status = self.component_status
 
-        url = f"https://status.stusta.de/api/v1/incidents/{id}"
+        url = f"{BASE_URL}/api/v1/incidents/{id}"
         headers = {
             "Content-Type": "application/json",
             "X-Cachet-Token": AUTH_TOKEN
@@ -119,7 +131,7 @@ class Component:
             return
         self.update_incident(component_status=1)
 
-        url = f"https://status.stusta.de/api/v1/incidents/{self.incident_number}"
+        url = f"{BASE_URL}/api/v1/incidents/{self.incident_number}"
         headers = {
             "Content-Type": "application/json",
             "X-Cachet-Token": AUTH_TOKEN
@@ -164,7 +176,7 @@ class Component:
             return True
         tdelta = (curtime - self.last_success).total_seconds()
         logger.debug(f"Checking current status of {self.component_name}; Secs since last confirm: {tdelta}; "
-                     f"Secs till first notify: {first_incident_seconds}")
+                     f"Secs till first notify: {first_incident_seconds - tdelta}")
 
         # we have a lasting problem
         if (self.incident_number is not None) and not self.incident_elevated and (tdelta > elevate_incident_seconds):
@@ -193,7 +205,7 @@ class IR(Component):
     def __init__(self):
         super().__init__("Internal Router")
 
-    async def init(self):
+    async def start(self):
         asyncio.create_task(self.ping_loop())
 
     async def ping_loop(self):
@@ -221,29 +233,25 @@ class NAT(Component):
     def __init__(self):
         super().__init__("NAT")
 
-    async def init(self):
+    async def start(self):
         await asyncio.start_server(self.tcp_callback, "0.0.0.0", 7331)
 
     async def tcp_callback(self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter):
         logger.debug("got TCP request...")
 
-        timestamp_str = (await reader.readline())
-
         try:
+            timestamp_str = await reader.readline()
             timestamp_sent = datetime.datetime.fromtimestamp(int(timestamp_str.decode("utf8")))
-            tdelta = datetime.datetime.now() - timestamp_sent
-            if abs(tdelta.total_seconds()) < 30:
-                logger.debug("TCP request is from NAT")
-                self.last_success = datetime.datetime.now()
-                writer.write(b"OK")
-            else:
-                writer.write(b"FAIL")
+        except:  # ignore malformed requests
+            return
 
-        finally:
-
-            await writer.drain()
-            writer.close()
-            await writer.wait_closed()
+        tdelta = datetime.datetime.now() - timestamp_sent
+        if abs(tdelta.total_seconds()) < 30:
+            logger.debug("TCP request is from NAT")
+            self.last_success = datetime.datetime.now()
+            writer.write(b"OK")
+        else:
+            writer.write(b"FAIL")
 
     def check_and_update_status(self):
         logger.debug("in NAT check function")
@@ -262,10 +270,10 @@ class Proxy(Component):
     def __init__(self):
         super().__init__("Proxy")
 
-    async def init(self):
+    async def start(self):
         http_server = web.Application()
         http_server.add_routes([web.get("/http-ping", self.http_callback)])
-        asyncio.gather(web._run_app(http_server, port=7332))
+        asyncio.create_task(web._run_app(http_server, port=7332))
 
     async def http_callback(self, request: web.Request):
         logger.debug("got an http request...")
@@ -302,9 +310,9 @@ class Proxy(Component):
 
 
 async def test_loop(blocking_service: Component, nonblocking_services: List[Component]):
-    await blocking_service.init()
+    await blocking_service.start()
     for service in nonblocking_services:
-        await service.init()
+        await service.start()
 
     logger.debug("Finished setting up the objects")
 
@@ -331,8 +339,4 @@ def main():
 
 
 if __name__ == "__main__":
-    logging.debug("debug1")
-    # logging.error("error2")
-    logger.debug("Debug")
-    logger.warning("warning")
     main()
