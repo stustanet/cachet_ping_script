@@ -21,3 +21,6 @@ To check if Natter is offline a tcp connection is created regularly with `tcp_pi
 
 ### Proxy
 The HTTP Proxy is checked with `http_pinger.py`. The Proxy server is used automatically from the system configuration.
+
+## Other Components
+The other components on our status site, like mail or matrix, are managed by prometheus alerts, configured [here](https://gitlab.stusta.de/stustanet/ansible-automation/-/blob/master/roles/prometheus/templates/alertmanager.yml.j2).
